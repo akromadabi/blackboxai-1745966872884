@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Upload File App with Olahan Data Pesanan</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css" />
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
+  <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+  <style>
+    body {
+      font-family: "Inter", sans-serif;
+    }
+    .scrollbar-thin::-webkit-scrollbar {
+      height: 6px;
+      width: 6px;
+    }
+    .scrollbar-thin::-webkit-scrollbar-thumb {
+      background-color: rgba(100, 116, 139, 0.5);
+      border-radius: 10px;
+    }
+    table thead th {
+      position: sticky;
+      top: 0;
+      background: #eef2ff;
+      z-index: 10;
+    }
+    .dropdown-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.5rem;
+      height: 1.5rem;
+      font-size: 1rem;
+      color: #4f46e5;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      transition: color 0.2s ease;
+      user-select: none;
+      padding: 0;
+      margin-left: 0.25rem;
+      border-radius: 0.25rem;
+    }
+    .dropdown-btn:hover,
+    .dropdown-btn:focus {
+      color: #4338ca;
+      outline: none;
+      box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.5);
+    }
+    .filter-popup {
+      position: absolute;
+      background: white;
+      border: 1px solid #cbd5e1;
+      border-radius: 0.375rem;
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1),
+        0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      z-index: 50;
+      max-height: 300px;
+      overflow-y: auto;
+      width: 200px;
+      padding: 0.5rem;
+    }
+    .filter-popup::-webkit-scrollbar {
+      width: 6px;
+    }
+    .filter-popup::-webkit-scrollbar-thumb {
+      background-color: rgba(100, 116, 139, 0.5);
+      border-radius: 10px;
+    }
+    .tooltip {
+      position: fixed;
+      background-color: #4f46e5;
+      color: white;
+      padding: 0.25rem 0.5rem;
+      border-radius: 0.375rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      white-space: nowrap;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+      z-index: 1000;
+    }
+    .tooltip.show {
+      opacity: 1;
+    }
+    .modal-backdrop {
+      background-color: rgba(0, 0, 0, 0.5);
+    }
+    .clickable-cell {
+      cursor: pointer;
+      user-select: none;
+    }
+    .channel-logo {
+      width: 24px;
+      height: 24px;
+      object-fit: contain;
+      vertical-align: middle;
+      margin-right: 0.25rem;
+      display: inline-block;
+    }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen flex flex-col relative">
+  <div id="root" class="flex-grow flex flex-col"></div>
+
+  <script type="text/babel" data-type="module">
+    const { useState, useEffect, useMemo, useRef } = React;
+
+    // Shared utility functions
+    function formatDateIndo(date) {
+      if (!(date instanceof Date) || isNaN(date)) return '';
+      const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', "Jumat", 'Sabtu'];
+      const months = [
+        'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+        'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+      ];
+      const dayName = days[date.getDay()];
+      const dayNum = date.getDate();
+      const monthName = months[date.getMonth()];
+      const year = date.getFullYear();
+      const hour = date.getHours().toString().padStart(2, '0');
+      const minute = date.getMinutes().toString().padStart(2, '0');
+      return `${dayName}, ${dayNum} ${monthName} ${year} ${hour}:${minute}`;
+    }
+
+    function formatRupiah(number) {
+      if (typeof number !== 'number' || isNaN(number)) return '';
+      return 'Rp' + number.toLocaleString('id-ID', { maximumFractionDigits: 0 });
+    }
+
+    // Platform icons for marketplace channels
+    const platformIcons = {
+      Tiktok: "https://static.vecteezy.com/system/resources/previews/023/986/939/non_2x/tiktok-logo-tiktok-logo-transparent-tiktok-icon-transparent-free-free-png.png",
+      Shopee: "https://static.vecteezy.com/system/resources/previews/053/407/516/non_2x/shopee-logo-shopee-icon-transparent-social-media-icons-free-png.png", 
+      Lazada: "https://static.cdnlogo.com/logos/l/48/lazada-icon800x800.png",
+      Tokopedia: "https://freelogopng.com/images/all_img/1691990957tokopedia-icon-png.png",
+      Unknown: "https://icons.iconarchive.com/icons/custom-icon-design/flatastic-1/512/delete-icon.png"
+    };
+
+    // Navigation menu items
+    const menuItems = [
+      { key: "dashboard", label: "Dashboard", icon: <i className="fas fa-chart-line"></i> },
+      { key: "upload", label: "Upload File", icon: <i className="fas fa-file-upload"></i> },
+      { key: "orders", label: "Tabel Pesanan", icon: <i className="fas fa-table"></i> },
+      { key: "payments", label: "Tabel Pembayaran", icon: <i className="fas fa-credit-card"></i> },
+      { key: "olahan", label: "SUB - Olahan Data Pesanan", icon: <i className="fas fa-database"></i> },
+      { key: "rangkuman", label: "Rangkuman Transaksi", icon: <i className="fas fa-chart-bar"></i> },
+      { key: "return", label: "Return", icon: <i className="fas fa-undo"></i> },
+      { key: "pengembalian", label: "Pengembalian", icon: <i className="fas fa-box"></i> },
+      { key: "inputmodal", label: "Input Modal", icon: <i className="fas fa-edit"></i> },
+      { key: "productAnalysis", label: "Produk Analisis", icon: <i className="fas fa-chart-pie"></i> }
+    ];
+
+    // Mobile Navigation component
+    function MobileNav({ currentPage, setCurrentPage }) {
+      const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+      
+      useEffect(() => {
+        setMobileMenuOpen(false);
+      }, [currentPage]);
+
+      return (
+        <nav className="md:hidden bg-white shadow-md sticky top-0 z-50">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between h-14 items-center">
+              <h1 className="text-xl font-semibold text-indigo-600 select-none whitespace-nowrap">
+                FlatDesignApp
+              </h1>
+              <button
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                aria-label="Toggle menu"
+                aria-expanded={mobileMenuOpen}
+                className="text-gray-600 hover:text-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 rounded-md p-2"
+                type="button"
+              >
+                <i className="fas fa-bars text-2xl"></i>
+              </button>
+            </div>
+          </div>
+          {mobileMenuOpen && (
+            <div className="bg-white border-t border-gray-200 shadow-md">
+              <div className="flex flex-col px-4 py-2 space-y-1">
+                {menuItems.map(({ key, label, icon }) => (
+                  <button
+                    key={key}
+                    onClick={() => {
+                      setCurrentPage(key);
+                      setMobileMenuOpen(false);
+                    }}
+                    className={`text-left text-gray-700 px-3 py-2 rounded-md text-base font-medium transition-colors flex items-center space-x-2 ${
+                      currentPage === key
+                        ? "bg-indigo-600 text-white"
+                        : "hover:bg-indigo-100 hover:text-indigo-600"
+                    }`}
+                    aria-current={currentPage === key ? "page" : undefined}
+                    type="button"
+                  >
+                    <span className="text-lg w-6 h-6 flex items-center justify-center">
+                      {icon}
+                    </span>
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </nav>
+      );
+    }
+
+    // Desktop Navigation component
+    function DesktopNav({ currentPage, setCurrentPage }) {
+      return (
+        <nav className="hidden md:block bg-white shadow-md sticky top-0 z-50">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between h-14 items-center">
+              <h1 className="text-xl font-semibold text-indigo-600 select-none whitespace-nowrap">
+                FlatDesignApp
+              </h1>
+              <div className="flex space-x-4 overflow-x-auto scrollbar-thin py-2">
+                {menuItems.map(({ key, label }) => (
+                  <button
+                    key={key}
+                    onClick={() => setCurrentPage(key)}
+                    className={`text-sm font-medium px-4 py-2 rounded-md transition-colors whitespace-nowrap ${
+                      currentPage === key
+                        ? "bg-indigo-600 text-white"
+                        : "text-gray-600 hover:bg-indigo-100 hover:text-indigo-600"
+                    }`}
+                    aria-current={currentPage === key ? "page" : undefined}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </nav>
+      );
+    }
+
+    // Main Navigation wrapper
+    function Nav({ currentPage, setCurrentPage }) {
+      return (
+        <>
+          <MobileNav currentPage={currentPage} setCurrentPage={setCurrentPage} />
+          <DesktopNav currentPage={currentPage} setCurrentPage={setCurrentPage} />
+        </>
+      );
+    }
+
+    // Dashboard component
+    function Dashboard({ ordersData, paymentsData }) {
+      // Compute summary sums from ordersData and paymentsData
+      const summarySums = useMemo(() => {
+        // Initialize all needed keys with 0
+        const sums = {
+          'PESANAN.Order': 0,
+          'PESANAN.PCS': 0,
+          'CANCEL.Order': 0, 
+          'CANCEL.PCS': 0,
+          'FIX TERBELI.Order': 0,
+          'FIX TERBELI.PCS': 0,
+          'TERKIRIM.Order': 0,
+          'TERKIRIM.PCS': 0,
+          'AKAN DIKIRIM.Order': 0,
+          'AKAN DIKIRIM.PCS': 0,
+          'SUDAH CAIR.Order': 0,
+          'SUDAH CAIR.PCS': 0,
+          'BELUM CAIR.Order': 0,
+          'BELUM CAIR.PCS': 0,
+          'LABA KOTOR': 0,
+          'LABA BERSIH': 0,
+          'Pengembalian.Order': 0,
+          'Pengembalian.PCS': 0,
+          'RETURN.Order': 0,
+          'RETURN.PCS': 0,
+          'ESTIMASI': 0,
+          'AFFILIASI.Nominal': 0,
+          'AFFILIASI.Presentase': 0,
+          'COD.Jumlah': 0,
+          'COD.Presentase': 0
+        };
+
+        // Map payments by Order/adjustment ID for quick lookup
+        const normalizedPayments = paymentsData.map(row => {
+          const newRow = {};
+          Object.entries(row).forEach(([k, v]) => newRow[k.trim()] = v);
+          return newRow;
+        });
+        
+        const paymentsByOrderId = new Map();
+        normalizedPayments.forEach(p => {
+          const orderIdKey = Object.keys(p).find(k => k.toLowerCase() === 'order/adjustment id');
+          const orderId = orderIdKey ? p[orderIdKey] : '';
+          if (!orderId) return;
+          if (!paymentsByOrderId.has(orderId)) paymentsByOrderId.set(orderId, []);
+          paymentsByOrderId.get(orderId).push(p);
+        });
+
+        // Group orders by Order ID
+        const ordersGroupedById = new Map();
+        ordersData.forEach(order => {
+          const orderId = order['Order ID'] || '';
+          if (!orderId) return;
+          if (!ordersGroupedById.has(orderId)) ordersGroupedById.set(orderId, []);
+          ordersGroupedById.get(orderId).push(order);
+        });
+
+        // Process each order group
+        ordersGroupedById.forEach((orders, orderId) => {
+          const order = orders[0];
+          
+          // Sum quantity for this order group
+          let totalQuantity = 0;
+          orders.forEach(o => {
+            const qRaw = o['Quantity'];
+            const q = typeof qRaw === 'string' ? parseInt(qRaw.replace(/\D/g, ''), 10) : Number(qRaw);
+            if (!isNaN(q)) totalQuantity += q;
+          });
+
+          const statusOrder = (order['Order Status'] || '').toLowerCase();
+          const paymentMethod = (order['Payment Method'] || '').toLowerCase();
+
+          // Payments for this order
+          const paymentsForOrder = paymentsByOrderId.get(orderId) || [];
+          let totalSettlementAmount = 0;
+          let totalAffiliateCommission = 0;
+          paymentsForOrder.forEach(p => {
+            const tsa = parseFloat(p['Total settlement amount']);
+            if (!isNaN(tsa)) totalSettlementAmount += tsa;
+            const aff = parseFloat(p['Affiliate commission']);
+            if (!isNaN(aff)) totalAffiliateCommission += aff;
+          });
+
+          // PESANAN
+          sums['PESANAN.Order'] += 1;
+          sums['PESANAN.PCS'] += totalQuantity;
+
+          // CANCEL
+          if (statusOrder.startsWith('cancel') || statusOrder === 'canceled' || statusOrder === 'cancelled') {
+            sums['CANCEL.Order'] += 1;
+            sums['CANCEL.PCS'] += totalQuantity;
+          }
+
+          // FIX TERBELI (completed, shipped, to ship)
+          if (['completed', 'shipped', 'to ship'].includes(statusOrder)) {
+            sums['FIX TERBELI.Order'] += 1;
+            sums['FIX TERBELI.PCS'] += totalQuantity;
+          }
+
+          // TERKIRIM (shipped)
+          if (statusOrder === 'shipped') {
+            sums['TERKIRIM.Order'] += 1;
+            sums['TERKIRIM.PCS'] += totalQuantity;
+          }
+
+          // AKAN DIKIRIM (to ship)
+          if (statusOrder === 'to ship') {
+            sums['AKAN DIKIRIM.Order'] += 1;
+            sums['AKAN DIKIRIM.PCS'] += totalQuantity;
+          }
+
+          // SUDAH CAIR (totalSettlementAmount > 0)
+          if (totalSettlementAmount > 0) {
+            sums['SUDAH CAIR.Order'] += 1;
+            sums['SUDAH CAIR.PCS'] += totalQuantity;
+          }
+
+          // BELUM CAIR (totalSettlementAmount <= 0)
+          if (totalSettlementAmount <= 0) {
+            sums['BELUM CAIR.Order'] += 1;
+            sums['BELUM CAIR.PCS'] += totalQuantity;
+          }
+
+          // LABA KOTOR & LABA BERSIH
+          sums['LABA KOTOR'] += totalSettlementAmount;
+          sums['LABA BERSIH'] += totalSettlementAmount;
+
+          // Pengembalian
+          if (statusOrder === 'pengembalian') {
+            sums['Pengembalian.Order'] += 1;
+            sums['Pengembalian.PCS'] += totalQuantity;
+          }
+
+          // Return
+          if (statusOrder === 'return') {
+            sums['RETURN.Order'] += 1;
+            sums['RETURN.PCS'] += totalQuantity;
+          }
+
+          // AFFILIASI Nominal
+          sums['AFFILIASI.Nominal'] += totalAffiliateCommission;
+
+          // COD Jumlah
+          if (paymentMethod === 'bayar di tempat') {
+            sums['COD.Jumlah'] += 1;
+          }
+        });
+
+        // ESTIMASI is 0 as modal not included
+        sums['ESTIMASI'] = 0;
+
+        // Calculate percentages
+        const totalOrders = sums['PESANAN.Order'] || 0;
+        
+        // AFFILIASI Presentase = (jumlah order affiliasi YA) / total order * 100
+        let affiliasiYACount = 0;
+        ordersGroupedById.forEach((orders, orderId) => {
+          const paymentsForOrder = paymentsByOrderId.get(orderId) || [];
+          let totalAffiliateCommission = 0;
+          paymentsForOrder.forEach(p => {
+            const aff = parseFloat(p['Affiliate commission']);
+            if (!isNaN(aff)) totalAffiliateCommission += aff;
+          });
+          if (totalAffiliateCommission > 0) affiliasiYACount++;
+        });
+        sums['AFFILIASI.Presentase'] = totalOrders > 0 ? (affiliasiYACount / totalOrders) * 100 : 0;
+
+        // COD Presentase = (jumlah order bayar di tempat) / total order * 100
+        sums['COD.Presentase'] = totalOrders > 0 ? (sums['COD.Jumlah'] / totalOrders) * 100 : 0;
+
+        return sums;
+      }, [ordersData, paymentsData]);
+
+      // Cards to display with header and sub-header mapping to summarySums keys
+      const cardsInfo = [
+        { key: 'PESANAN.Order', label: 'Pesanan', icon: 'fas fa-box', isText: false, subKey: 'PESANAN.PCS', subLabel: 'PCS' },
+        { key: 'CANCEL.Order', label: 'Cancel', icon: 'fas fa-ban', isText: false, subKey: 'CANCEL.PCS', subLabel: 'PCS' },
+        { key: 'FIX TERBELI.Order', label: 'Fix Terbeli', icon: 'fas fa-check-circle', isText: false, subKey: 'FIX TERBELI.PCS', subLabel: 'PCS' },
+        { key: 'TERKIRIM.Order', label: 'Terkirim', icon: 'fas fa-truck', isText: false, subKey: 'TERKIRIM.PCS', subLabel: 'PCS' },
+        { key: 'AKAN DIKIRIM.Order', label: 'Akan Dikirim', icon: 'fas fa-clock', isText: false, subKey: 'AKAN DIKIRIM.PCS', subLabel: 'PCS' },
+        { key: 'SUDAH CAIR.Order', label: 'Sudah Cair', icon: 'fas fa-wallet', isText: false, subKey: 'SUDAH CAIR.PCS', subLabel: 'PCS' },
+        { key: 'BELUM CAIR.Order', label: 'Belum Cair', icon: 'fas fa-hourglass-start', isText: false, subKey: 'BELUM CAIR.PCS', subLabel: 'PCS' },
+        { key: 'LABA KOTOR', label: 'Laba Kotor', icon: 'fas fa-dollar-sign', isText: false },
+        { key: 'LABA BERSIH', label: 'Laba Bersih', icon: 'fas fa-money-bill-wave', isText: false },
+        { key: 'Pengembalian.Order', label: 'Pengembalian', icon: 'fas fa-undo', isText: false, subKey: 'Pengembalian.PCS', subLabel: 'PCS' },
+        { key: 'RETURN.Order', label: 'Return', icon: 'fas fa-undo-alt', isText: false, subKey: 'RETURN.PCS', subLabel: 'PCS' },
+        { key: 'ESTIMASI', label: 'Estimasi', icon: 'fas fa-calculator', isText: false },
+        { key: 'AFFILIASI.Nominal', label: 'Affiliasi', icon: 'fas fa-handshake', isText: false, subKey: 'AFFILIASI.Presentase', subLabel: 'Presentase', isSubText: true },
+        { key: 'COD.Jumlah', label: 'COD', icon: 'fas fa-money-check-alt', isText: false, subKey: 'COD.Presentase', subLabel: 'Presentase', isSubText: true }
+      ];
+
+      return (
+        <main className="max-w-full p-4 sm:p-6 lg:p-8">
+          <h2 className="text-2xl font-semibold text-gray-800 mb-6">Dashboard</h2>
+          <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+            {cardsInfo.map(({ key, label, icon, isText, subKey, subLabel, isSubText }) => {
+              let mainValue = summarySums[key];
+              if (mainValue === undefined || mainValue === null) mainValue = '-';
+              
+              if (!isText && typeof mainValue === 'string' && mainValue !== '-' && !mainValue.toString().includes('%')) {
+                const numVal = Number(mainValue.toString().replace(/\./g, '').replace(/[^0-9.-]+/g, ''));
+                if (!isNaN(numVal)) {
+                  if (key === 'LABA KOTOR' || key === 'LABA BERSIH' || key === 'ESTIMASI' || key === 'AFFILIASI.Nominal') {
+                    mainValue = formatRupiah(numVal);
+                  } else {
+                    mainValue = numVal.toLocaleString('id-ID');
+                  }
+                }
+              } else if (typeof mainValue === 'number') {
+                if (key === 'LABA KOTOR' || key === 'LABA BERSIH' || key === 'ESTIMASI' || key === 'AFFILIASI.Nominal') {
+                  mainValue = formatRupiah(mainValue);
+                } else {
+                  mainValue = mainValue.toLocaleString('id-ID');
+                }
+              }
+
+              let subValue = null;
+              if (subKey) {
+                subValue = summarySums[subKey];
+                if (subValue === undefined || subValue === null) subValue = '-';
+                
+                if (!isSubText && typeof subValue === 'string' && subValue !== '-' && !subValue.toString().includes('%')) {
+                  const numSubVal = Number(subValue.toString().replace(/\./g, '').replace(/[^0-9.-]+/g, ''));
+                  if (!isNaN(numSubVal)) {
+                    if (subKey === 'LABA KOTOR' || subKey === 'LABA BERSIH' || subKey === 'ESTIMASI' || subKey === 'AFFILIASI.Nominal') {
+                      subValue = formatRupiah(numSubVal);
+                    } else {
+                      subValue = numSubVal.toLocaleString('id-ID');
+                    }
+                  }
+                } else if (typeof subValue === 'number' && !isSubText) {
+                  if (subKey === 'LABA KOTOR' || subKey === 'LABA BERSIH' || subKey === 'ESTIMASI' || subKey === 'AFFILIASI.Nominal') {
+                    subValue = formatRupiah(subValue);
+                  } else {
+                    subValue = subValue.toLocaleString('id-ID');
+                  }
+                }
+                
+                // For sub text values that are percentages, keep as is
+                if (isSubText && typeof subValue === 'number') {
+                  subValue = subValue.toFixed(2) + '%';
+                }
+              }
+
+              return (
+                <div key={key} className="bg-white rounded-lg shadow p-5 flex flex-col space-y-2">
+                  <div className="flex items-center justify-between space-x-4">
+                    <div>
+                      <p className="text-sm font-medium text-gray-500">{label}</p>
+                      <p className="text-xl font-semibold text-gray-900 truncate" title={mainValue}>{mainValue}</p>
+                    </div>
+                    <div className="flex-shrink-0 text-indigo-600 text-3xl">
+                      <i className={icon} aria-hidden="true"></i>
+                    </div>
+                  </div>
+                  {subKey && (
+                    <div className="pl-0">
+                      <p className="text-xs font-semibold text-gray-400 inline">{subLabel}: </p>
+                      <p className="text-sm font-semibold text-gray-700 truncate inline" title={subValue}> {subValue}</p>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </main>
+      );
+    }
+
+    // Upload File component
+
+    // Main App component
+    function App() {
+      const [currentPage, setCurrentPage] = useState("dashboard");
+      const [ordersData, setOrdersData] = useState([]);
+      const [paymentsData, setPaymentsData] = useState([]);
+      const [returnData, setReturnData] = useState([]);
+      const [pengembalianData, setPengembalianData] = useState([]);
+      const [modalValues, setModalValues] = useState(() => {
+        try {
+          const saved = localStorage.getItem('modalValues');
+          if (saved) return JSON.parse(saved);
+        } catch {}
+        return {};
+      });
+
+      // Search states
+      const [ordersSearch, setOrdersSearch] = useState("");
+      const [paymentsSearch, setPaymentsSearch] = useState("");
+      const [returnSearch, setReturnSearch] = useState("");
+      const [pengembalianSearch, setPengembalianSearch] = useState("");
+
+      // Channel selection state
+      const [selectedChannels, setSelectedChannels] = useState([]);
+      const [channelModalOpen, setChannelModalOpen] = useState(false);
+
+      // Filtered data
+      const filteredOrdersData = useMemo(() => {
+        if (!ordersSearch.trim()) return ordersData;
+        const s = ordersSearch.toLowerCase();
+        return ordersData.filter(row =>
+          ["Order ID", "Product Name", "Recipient", "Buyer Username"].some(key =>
+            (row[key] || "").toString().toLowerCase().includes(s)
+          )
+        );
+      }, [ordersData, ordersSearch]);
+
+      return (
+        <>
+          <Nav currentPage={currentPage} setCurrentPage={setCurrentPage} />
+          
+          <main className="flex-grow p-4">
+            {currentPage === "dashboard" && (
+              <Dashboard ordersData={ordersData} paymentsData={paymentsData} />
+            )}
+            
+            {currentPage === "upload" && (
+              <UploadFile
+                onUploadOrders={data => {
+                  setOrdersData(data);
+                  setCurrentPage("orders");
+                }}
+                onUploadPayments={data => {
+                  setPaymentsData(data);
+                  setCurrentPage("payments");
+                }}
+                onUploadReturn={data => {
+                  setReturnData(data);
+                  setCurrentPage("return");
+                }}
+                onUploadPengembalian={data => {
+                  setPengembalianData(data);
+                  setCurrentPage("pengembalian");
+                }}
+              />
+            )}
+
+            {currentPage === "orders" && (
+              <OrdersTable 
+                ordersData={filteredOrdersData}
+                modalValues={modalValues}
+                selectedChannels={selectedChannels}
+                search={ordersSearch}
+                setSearch={setOrdersSearch}
+              />
+            )}
+
+            {currentPage === "payments" && (
+              <PaymentsTable
+                paymentsData={paymentsData}
+                search={paymentsSearch}
+                setSearch={setPaymentsSearch}
+              />
+            )}
+
+            {currentPage === "olahan" && (
+              <OlahanDataPesanan
+                ordersData={ordersData}
+                paymentsData={paymentsData}
+              />
+            )}
+
+            {currentPage === "rangkuman" && (
+              <RangkumanTransaksi
+                ordersData={ordersData}
+                paymentsData={paymentsData}
+                modalValues={modalValues}
+                returnData={returnData}
+                pengembalianData={pengembalianData}
+              />
+            )}
+
+            {currentPage === "return" && (
+              <ReturnTable
+                returnData={returnData}
+                search={returnSearch}
+                setSearch={setReturnSearch}
+                pengembalianData={pengembalianData}
+              />
+            )}
+
+            {currentPage === "pengembalian" && (
+              <PengembalianTable
+                pengembalianData={pengembalianData}
+                search={pengembalianSearch}
+                setSearch={setPengembalianSearch}
+                returnData={returnData}
+                ordersData={ordersData}
+              />
+            )}
+
+            {currentPage === "inputmodal" && (
+              <InputModal
+                ordersData={ordersData}
+                modalValues={modalValues}
+                setModalValues={setModalValues}
+              />
+            )}
+
+            {currentPage === "productAnalysis" && (
+              <ProductAnalysis
+                ordersData={ordersData}
+                paymentsData={paymentsData}
+              />
+            )}
+          </main>
+
+          {/* Channel Selection Modal */}
+          <button
+            onClick={() => setChannelModalOpen(true)}
+            className="fixed bottom-6 right-6 z-50 inline-flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-5 rounded-full shadow-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+          >
+            <i className="fas fa-tv"></i>
+            <span>Pilih Channel</span>
+          </button>
+
+          {channelModalOpen && (
+            <ChannelModal
+              selectedChannels={selectedChannels}
+              setSelectedChannels={setSelectedChannels}
+              onClose={() => setChannelModalOpen(false)}
+              ordersData={ordersData}
+            />
+          )}
+        </>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
